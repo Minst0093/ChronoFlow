@@ -1,0 +1,35 @@
+### IDE & Editor
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+### Gradle
+.gradle/
+build/
+**/build/
+
+### Local configuration (do not commit)
+local.properties
+
+### OS / Misc
+.DS_Store
+Thumbs.db
+*.log
+
+### Android specific
+captures/
+*.apk
+*.ap_
+*.aab
+*.keystore
+*.jks
+
+### Kotlin / Java
+*.class
+out/
+
+### Docs / notes that should stay local
+docx/
+DEV_NOTES.md
