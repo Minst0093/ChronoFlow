@@ -6,5 +6,7 @@ plugins {
     id("com.android.library") version "8.13.2" apply false
     // Kotlin Compose Compiler plugin（Kotlin 2.0+ 启用 Compose 必须引入）
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.0" apply false
+    // SQLDelight
+    id("app.cash.sqldelight") version "2.0.2" apply false
 }
 

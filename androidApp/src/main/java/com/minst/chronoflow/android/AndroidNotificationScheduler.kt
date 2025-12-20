@@ -20,49 +20,68 @@ class AndroidNotificationScheduler(
         context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
 
     override fun schedule(event: CalendarEvent) {
+        // 先取消旧的提醒（如果存在）
+        cancel(event.id)
+
         val reminders = reminderEngine.calculateReminderTimes(event)
-        val first = reminders.minOrNull() ?: return
+        if (reminders.isEmpty()) return
 
         val zone = TimeZone.currentSystemDefault()
-        val triggerAtMillis = first.toInstant(zone).toEpochMilliseconds()
+        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
 
-        val intent = Intent(context, ReminderReceiver::class.java).apply {
-            action = ACTION_SHOW_REMINDER
-            putExtra(EXTRA_EVENT_ID, event.id)
-            putExtra(EXTRA_EVENT_TITLE, event.title)
+        // 为每个提醒时间创建Alarm
+        reminders.forEachIndexed { index, reminderTime ->
+            val triggerAtMillis = reminderTime.toInstant(zone).toEpochMilliseconds()
+            
+            // 只调度未来的提醒
+            if (triggerAtMillis > now) {
+                val intent = Intent(context, ReminderReceiver::class.java).apply {
+                    action = ACTION_SHOW_REMINDER
+                    putExtra(EXTRA_EVENT_ID, event.id)
+                    putExtra(EXTRA_EVENT_TITLE, event.title)
+                    putExtra(EXTRA_EVENT_START_TIME, event.startTime.toString())
+                }
+
+                // 使用 event.id.hashCode() + index 作为 requestCode，确保每个提醒点都有唯一的PendingIntent
+                val requestCode = event.id.hashCode() + index
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    requestCode,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+
+                alarmManager?.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent,
+                )
+            }
         }
-
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            event.id.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        alarmManager?.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            triggerAtMillis,
-            pendingIntent,
-        )
     }
 
     override fun cancel(eventId: String) {
-        val intent = Intent(context, ReminderReceiver::class.java).apply {
-            action = ACTION_SHOW_REMINDER
+        // 取消该事件的所有提醒（最多支持10个提醒点，实际使用中可根据需要调整）
+        for (index in 0..9) {
+            val intent = Intent(context, ReminderReceiver::class.java).apply {
+                action = ACTION_SHOW_REMINDER
+            }
+            val requestCode = eventId.hashCode() + index
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            alarmManager?.cancel(pendingIntent)
         }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            eventId.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        alarmManager?.cancel(pendingIntent)
     }
 
     companion object {
         const val ACTION_SHOW_REMINDER = "com.minst.chronoflow.SHOW_REMINDER"
         const val EXTRA_EVENT_ID = "event_id"
         const val EXTRA_EVENT_TITLE = "event_title"
+        const val EXTRA_EVENT_START_TIME = "event_start_time"
     }
 }
 

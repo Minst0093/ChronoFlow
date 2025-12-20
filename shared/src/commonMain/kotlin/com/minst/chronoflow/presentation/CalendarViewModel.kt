@@ -1,6 +1,5 @@
 package com.minst.chronoflow.presentation
 
-import com.minst.chronoflow.data.local.InMemoryEventRepository
 import com.minst.chronoflow.domain.engine.DefaultReminderEngine
 import com.minst.chronoflow.domain.engine.DefaultTimeAggregationEngine
 import com.minst.chronoflow.domain.engine.ReminderEngine
@@ -19,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DatePeriod
+import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
@@ -36,7 +36,7 @@ data class CreateEventInput(
 )
 
 class CalendarViewModel(
-    private val repository: EventRepository = InMemoryEventRepository(),
+    private val repository: EventRepository,
     private val aggregationEngine: TimeAggregationEngine = DefaultTimeAggregationEngine(),
     private val reminderEngine: ReminderEngine = DefaultReminderEngine(),
     private val notificationScheduler: NotificationScheduler? = null,
@@ -48,12 +48,43 @@ class CalendarViewModel(
     val uiState: StateFlow<CalendarUiState> = _uiState.asStateFlow()
 
     init {
+        // 初始化时加载所有视图所需的数据
         refreshForCurrentMonth()
+        refreshEventsForSelectedWeek()
+        refreshEventsForSelectedDate()
     }
 
     fun onDaySelected(date: LocalDate) {
         _uiState.value = _uiState.value.copy(selectedDate = date)
         refreshEventsForSelectedDate()
+    }
+
+    fun onPreviousWeek() {
+        val currentState = _uiState.value
+        val newWeekStart = currentState.selectedWeekStart.minus(DatePeriod(days = 7))
+        _uiState.value = currentState.copy(selectedWeekStart = newWeekStart)
+        refreshEventsForSelectedWeek()
+    }
+
+    fun onNextWeek() {
+        val currentState = _uiState.value
+        val newWeekStart = currentState.selectedWeekStart.plus(DatePeriod(days = 7))
+        _uiState.value = currentState.copy(selectedWeekStart = newWeekStart)
+        refreshEventsForSelectedWeek()
+    }
+
+    fun onPreviousMonth() {
+        val currentState = _uiState.value
+        val newMonthStart = currentState.selectedMonthStart.minus(DatePeriod(months = 1))
+        _uiState.value = currentState.copy(selectedMonthStart = newMonthStart)
+        refreshForCurrentMonth()
+    }
+
+    fun onNextMonth() {
+        val currentState = _uiState.value
+        val newMonthStart = currentState.selectedMonthStart.plus(DatePeriod(months = 1))
+        _uiState.value = currentState.copy(selectedMonthStart = newMonthStart)
+        refreshForCurrentMonth()
     }
 
     fun onCreateEvent(input: CreateEventInput) {
@@ -117,26 +148,27 @@ class CalendarViewModel(
     private fun refreshAll() {
         refreshForCurrentMonth()
         refreshEventsForSelectedDate()
+        refreshEventsForSelectedWeek()
     }
 
     private fun refreshForCurrentMonth() {
         scope.launch {
             val currentState = _uiState.value
-            _uiState.value = currentState.copy(loadStatus = LoadStatus.Loading)
+            _uiState.value = _uiState.value.copy(loadStatus = LoadStatus.Loading)
             try {
                 val monthStart = currentState.selectedMonthStart
                 val monthEnd = monthStart.plus(DatePeriod(months = 1)).minusDays(1)
                 val events = repository.getEvents(monthStart, monthEnd)
                 val daySummaries = aggregationEngine.aggregateByDay(events)
                 val weekSummaries = aggregationEngine.aggregateByWeek(events)
-                _uiState.value = currentState.copy(
+                _uiState.value = _uiState.value.copy(
                     loadStatus = LoadStatus.Success,
                     daySummaries = daySummaries,
                     weekSummaries = weekSummaries,
                     errorMessage = null,
                 )
             } catch (t: Throwable) {
-                _uiState.value = currentState.copy(
+                _uiState.value = _uiState.value.copy(
                     loadStatus = LoadStatus.Error,
                     errorMessage = t.message,
                 )
@@ -150,9 +182,26 @@ class CalendarViewModel(
             try {
                 val date = currentState.selectedDate
                 val events = repository.getEvents(date, date)
-                _uiState.value = currentState.copy(eventsOfSelectedDate = events)
+                _uiState.value = _uiState.value.copy(eventsOfSelectedDate = events)
             } catch (t: Throwable) {
-                _uiState.value = currentState.copy(
+                _uiState.value = _uiState.value.copy(
+                    loadStatus = LoadStatus.Error,
+                    errorMessage = t.message,
+                )
+            }
+        }
+    }
+
+    private fun refreshEventsForSelectedWeek() {
+        scope.launch {
+            val currentState = _uiState.value
+            try {
+                val weekStart = currentState.selectedWeekStart
+                val weekEnd = weekStart.plus(DatePeriod(days = 6))
+                val events = repository.getEvents(weekStart, weekEnd)
+                _uiState.value = _uiState.value.copy(eventsOfSelectedWeek = events)
+            } catch (t: Throwable) {
+                _uiState.value = _uiState.value.copy(
                     loadStatus = LoadStatus.Error,
                     errorMessage = t.message,
                 )
@@ -163,12 +212,20 @@ class CalendarViewModel(
     private fun initialState(): CalendarUiState {
         val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
         val monthStart = today.withDayOfMonth(1)
-        val weekStart = monthStart // 简化处理，后续可按周一对齐
+        val weekStart = today.startOfWeek() // 对齐到周一
         return CalendarUiState(
             selectedDate = today,
             selectedWeekStart = weekStart,
             selectedMonthStart = monthStart,
         )
+    }
+
+    private fun LocalDate.startOfWeek(): LocalDate {
+        var current = this
+        while (current.dayOfWeek != DayOfWeek.MONDAY) {
+            current = current.minus(DatePeriod(days = 1))
+        }
+        return current
     }
 
     private fun LocalDate.withDayOfMonth(day: Int): LocalDate =

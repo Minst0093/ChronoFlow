@@ -1,6 +1,7 @@
 plugins {
     kotlin("multiplatform")
     id("com.android.library")
+    id("app.cash.sqldelight")
 }
 
 kotlin {
@@ -18,11 +19,13 @@ kotlin {
         val commonTest by getting {
             dependencies {
                 implementation(kotlin("test"))
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
             }
         }
         val androidMain by getting {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+                implementation("app.cash.sqldelight:android-driver:2.0.2")
             }
         }
         val androidUnitTest by getting
@@ -43,5 +46,13 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+    }
+}
+
+sqldelight {
+    databases {
+        create("ChronoFlowDatabase") {
+            packageName.set("com.minst.chronoflow.data.local.database")
+        }
     }
 }

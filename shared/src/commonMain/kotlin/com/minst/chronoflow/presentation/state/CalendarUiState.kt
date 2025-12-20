@@ -20,6 +20,7 @@ data class CalendarUiState(
     val daySummaries: List<DaySummary> = emptyList(),
     val weekSummaries: List<WeekSummary> = emptyList(),
     val eventsOfSelectedDate: List<CalendarEvent> = emptyList(),
+    val eventsOfSelectedWeek: List<CalendarEvent> = emptyList(), // 当前周的事件列表，用于周视图
     val errorMessage: String? = null,
 )
 
