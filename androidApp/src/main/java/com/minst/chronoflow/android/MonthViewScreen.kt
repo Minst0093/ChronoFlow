@@ -11,23 +11,31 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.minst.chronoflow.domain.model.CalendarEvent
 import com.minst.chronoflow.domain.model.DaySummary
 import com.minst.chronoflow.presentation.CalendarViewModel
 import kotlinx.datetime.DatePeriod
@@ -43,6 +51,9 @@ fun MonthViewScreen(
     onDayClick: (LocalDate) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var showEventList by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         topBar = {
@@ -57,6 +68,9 @@ fun MonthViewScreen(
                     }
                     Button(onClick = { viewModel.onNextMonth() }) {
                         Text("下个月")
+                    }
+                    Button(onClick = { viewModel.setShowLunar(!state.showLunar) }) {
+                        Text(if (state.showLunar) "隐藏农历" else "显示农历")
                     }
                 },
             )
@@ -145,13 +159,96 @@ fun MonthViewScreen(
                             summary = summary,
                             isCurrentMonth = isCurrentMonth,
                             isSelected = isSelected,
-                            onClick = { onDayClick(date) },
+                            showLunar = state.showLunar,
+                            viewModel = viewModel,
+                            onClick = {
+                                viewModel.onDaySelected(date)
+                                selectedDate = date
+                                showEventList = true
+                                onDayClick(date)
+                            },
                         )
                     } else {
                         Box(modifier = Modifier.aspectRatio(1f))
                     }
                 }
             }
+        }
+    }
+
+    // 显示选中日期的事件列表
+    if (showEventList && selectedDate != null) {
+        val dayEvents = state.eventsOfSelectedDate.filter { event ->
+            LocalDate(event.startTime.year, event.startTime.monthNumber, event.startTime.dayOfMonth) == selectedDate
+        }
+        
+        ModalBottomSheet(
+            onDismissRequest = { showEventList = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            ) {
+                Text(
+                    text = "${selectedDate!!.year}年${selectedDate!!.monthNumber}月${selectedDate!!.dayOfMonth}日",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+                if (dayEvents.isEmpty()) {
+                    Text(
+                        text = "这一天没有事件",
+                        color = Color.Gray,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(dayEvents.sortedBy { it.startTime }) { event ->
+                            EventListItem(
+                                event = event,
+                                onClick = {
+                                    showEventList = false
+                                    onDayClick(selectedDate!!)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EventListItem(
+    event: CalendarEvent,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(8.dp),
+    ) {
+        Column {
+            Text(
+                text = event.title,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = String.format(
+                    "%02d:%02d - %02d:%02d",
+                    event.startTime.hour,
+                    event.startTime.minute,
+                    event.endTime.hour,
+                    event.endTime.minute,
+                ),
+                fontSize = 12.sp,
+                color = Color.Gray,
+            )
         }
     }
 }
@@ -162,6 +259,8 @@ private fun MonthViewDayCell(
     summary: DaySummary?,
     isCurrentMonth: Boolean,
     isSelected: Boolean,
+    showLunar: Boolean,
+    viewModel: com.minst.chronoflow.presentation.CalendarViewModel,
     onClick: () -> Unit,
 ) {
     val eventCount = summary?.eventCount ?: 0
@@ -193,6 +292,21 @@ private fun MonthViewDayCell(
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 color = if (isCurrentMonth) Color.Black else Color.Gray,
             )
+            // lunar short text (fallback to viewModel lookup when summary missing)
+            if (showLunar) {
+                val lunarText = summary?.lunarText ?: viewModel.getLunarInfo(date)?.lunarShort
+                if (!lunarText.isNullOrBlank()) {
+                    Text(
+                        text = lunarText,
+                        fontSize = 10.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+                if (summary?.hasRecurring == true) {
+                    Text("🔁", fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp))
+                }
             if (eventCount > 0) {
                 // 显示事件密度指示（用点或数字）
                 Row(

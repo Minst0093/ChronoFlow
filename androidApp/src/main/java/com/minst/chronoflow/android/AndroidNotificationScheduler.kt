@@ -61,8 +61,8 @@ class AndroidNotificationScheduler(
     }
 
     override fun cancel(eventId: String) {
-        // 取消该事件的所有提醒（最多支持10个提醒点，实际使用中可根据需要调整）
-        for (index in 0..9) {
+        // 取消该事件的所有提醒（扩大到最多支持100个提醒点以兼容重复事件的多次调度）
+        for (index in 0..99) {
             val intent = Intent(context, ReminderReceiver::class.java).apply {
                 action = ACTION_SHOW_REMINDER
             }

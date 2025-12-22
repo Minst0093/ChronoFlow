@@ -51,6 +51,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("app.cash.sqldelight:android-driver:2.0.2")
+    // Hutool: lightweight utilities including Lunar calendar (used via reflection as optional dependency)
+    implementation("cn.hutool:hutool-all:5.8.20")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

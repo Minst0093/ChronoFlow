@@ -16,12 +16,17 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import com.minst.chronoflow.domain.model.RecurrenceRule
+import com.minst.chronoflow.domain.model.Frequency
+import kotlinx.datetime.DayOfWeek
+
 
 class SqlDelightEventRepository(
     context: Context,
 ) : EventRepository {
 
     private val database: ChronoFlowDatabase
+    private val appContext: Context
 
     init {
         val driver: SqlDriver = app.cash.sqldelight.driver.android.AndroidSqliteDriver(
@@ -30,6 +35,8 @@ class SqlDelightEventRepository(
             name = "chronoflow.db",
         )
         database = ChronoFlowDatabase(driver)
+        appContext = context
+        android.util.Log.d("SqlDelightRepo", "Initialized ChronoFlowDatabase at chronoflow.db")
     }
 
     override suspend fun getEvents(start: LocalDate, end: LocalDate): List<CalendarEvent> =
@@ -65,28 +72,81 @@ class SqlDelightEventRepository(
         val endTimeStr = endInstant.toString()
         
         val existing = database.calendarEventQueries.selectById(event.id).executeAsOneOrNull()
-        if (existing != null) {
-            database.calendarEventQueries.updateEvent(
-                id = event.id,
-                title = event.title,
-                description = event.description,
-                startTime = startTimeStr,
-                endTime = endTimeStr,
-                type = event.type.name,
-                intensity = event.intensity.toLong(),
-                reminderMinutesBefore = event.reminder?.minutesBefore?.toLong(),
-            )
-        } else {
-            database.calendarEventQueries.insertEvent(
-                id = event.id,
-                title = event.title,
-                description = event.description,
-                startTime = startTimeStr,
-                endTime = endTimeStr,
-                type = event.type.name,
-                intensity = event.intensity.toLong(),
-                reminderMinutesBefore = event.reminder?.minutesBefore?.toLong(),
-            )
+        try {
+            if (existing != null) {
+                database.calendarEventQueries.updateEvent(
+                    id = event.id,
+                    title = event.title,
+                    description = event.description,
+                    startTime = startTimeStr,
+                    endTime = endTimeStr,
+                    type = event.type.name,
+                    intensity = event.intensity.toLong(),
+                    reminderMinutesBefore = event.reminder?.minutesBefore?.toLong(),
+                    recurrence = recurrenceToDbString(event.recurrence),
+                    allDay = if (event.allDay) 1L else 0L,
+                )
+                android.util.Log.d("SqlDelightRepo", "Updated event ${event.id}")
+            } else {
+                database.calendarEventQueries.insertEvent(
+                    id = event.id,
+                    title = event.title,
+                    description = event.description,
+                    startTime = startTimeStr,
+                    endTime = endTimeStr,
+                    type = event.type.name,
+                    intensity = event.intensity.toLong(),
+                    reminderMinutesBefore = event.reminder?.minutesBefore?.toLong(),
+                    recurrence = recurrenceToDbString(event.recurrence),
+                    allDay = if (event.allDay) 1L else 0L,
+                )
+                android.util.Log.d("SqlDelightRepo", "Inserted event ${event.id}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("SqlDelightRepo", "insert/update failed: ${e.message}", e)
+            // attempt lightweight migration if recurrence column missing
+            val msg = e.message ?: ""
+            if (msg.contains("no such column", ignoreCase = true) || msg.contains("has no column named", ignoreCase = true)) {
+                try {
+                    val db = appContext.openOrCreateDatabase("chronoflow.db", Context.MODE_PRIVATE, null)
+                    db.execSQL("ALTER TABLE calendar_event ADD COLUMN recurrence TEXT;")
+                    db.close()
+                    android.util.Log.i("SqlDelightRepo", "Added recurrence column via ALTER TABLE, retrying insert")
+                    // retry
+            if (existing != null) {
+                database.calendarEventQueries.updateEvent(
+                    id = event.id,
+                    title = event.title,
+                    description = event.description,
+                    startTime = startTimeStr,
+                    endTime = endTimeStr,
+                    type = event.type.name,
+                    intensity = event.intensity.toLong(),
+                    reminderMinutesBefore = event.reminder?.minutesBefore?.toLong(),
+                    recurrence = recurrenceToDbString(event.recurrence),
+                    allDay = if (event.allDay) 1L else 0L,
+                )
+                    } else {
+                database.calendarEventQueries.insertEvent(
+                    id = event.id,
+                    title = event.title,
+                    description = event.description,
+                    startTime = startTimeStr,
+                    endTime = endTimeStr,
+                    type = event.type.name,
+                    intensity = event.intensity.toLong(),
+                    reminderMinutesBefore = event.reminder?.minutesBefore?.toLong(),
+                    recurrence = recurrenceToDbString(event.recurrence),
+                    allDay = if (event.allDay) 1L else 0L,
+                )
+                    }
+                } catch (m: Exception) {
+                    android.util.Log.e("SqlDelightRepo", "migration+retry failed: ${m.message}", m)
+                    throw m
+                }
+            } else {
+                throw e
+            }
         }
     }
 
@@ -113,6 +173,40 @@ private fun com.minst.chronoflow.data.local.database.Calendar_event.toDomainMode
         type = EventType.valueOf(type),
         intensity = intensity.toInt(),
         reminder = reminder_minutes_before?.let { ReminderConfig(it.toInt()) },
+        recurrence = this.recurrence?.let { parseRecurrence(it) },
+        allDay = this.all_day?.let { (it != 0L) } ?: false,
     )
+}
+
+private fun recurrenceToDbString(rule: RecurrenceRule?): String? {
+    if (rule == null) return null
+    val parts = mutableListOf<String>()
+    parts += "freq=${rule.freq.name}"
+    parts += "interval=${rule.interval}"
+    rule.byDay?.let { parts += "byDay=${it.joinToString(",") { d -> d.name }}" }
+    rule.count?.let { parts += "count=$it" }
+    rule.until?.let { parts += "until=${it.toString()}" }
+    parts += "allDay=${rule.allDay}"
+    return parts.joinToString(";")
+}
+
+private fun parseRecurrence(s: String?): RecurrenceRule? {
+    if (s == null) return null
+    val map = s.split(";").mapNotNull {
+        val idx = it.indexOf('=')
+        if (idx <= 0) null else Pair(it.substring(0, idx), it.substring(idx + 1))
+    }.toMap()
+
+    val freq = map["freq"]?.let { Frequency.valueOf(it) } ?: return null
+    val interval = map["interval"]?.toIntOrNull() ?: 1
+    val byDay = map["byDay"]?.split(",")?.mapNotNull { d ->
+        try { DayOfWeek.valueOf(d) } catch (t: Throwable) { null }
+    }
+    val count = map["count"]?.toIntOrNull()
+    val until = map["until"]?.let {
+        try { kotlinx.datetime.LocalDateTime.parse(it) } catch (t: Throwable) { null }
+    }
+    val allDay = map["allDay"]?.toBoolean() ?: false
+    return RecurrenceRule(freq = freq, interval = interval, byDay = byDay, count = count, until = until, allDay = allDay)
 }
 

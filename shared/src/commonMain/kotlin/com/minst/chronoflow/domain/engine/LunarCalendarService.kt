@@ -10,7 +10,10 @@ interface LunarCalendarService {
 }
 
 data class LunarInfo(
+    // full description (e.g. "农历正月初一")
     val lunarDate: String,
+    // short display (e.g. "初一") used in month cells
+    val lunarShort: String,
     val festival: String?,
     val solarTerm: String?,
 )
@@ -19,8 +22,10 @@ class StubLunarCalendarService : LunarCalendarService {
     override fun getLunarInfo(date: LocalDate): LunarInfo {
         // TODO: 接入真实农历算法或第三方库
         // 当前简单返回公历日期字符串作为占位。
+        val short = "${date.dayOfMonth}"
         return LunarInfo(
             lunarDate = "农历占位(${date})",
+            lunarShort = short,
             festival = null,
             solarTerm = null,
         )

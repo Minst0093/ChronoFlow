@@ -113,6 +113,26 @@ class ReminderEngineTest {
             assertEquals(expectedTime, reminders[0])
         }
     }
+
+    @Test
+    fun `recurring event returns future reminders`() {
+        val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+        val start = now.plus(DatePeriod(days = 1))
+        val event = CalendarEvent(
+            id = "e_rec",
+            title = "重复提醒测试",
+            description = null,
+            startTime = start,
+            endTime = start.plus(DatePeriod(days = 0)),
+            type = EventType.WORK,
+            intensity = 3,
+            reminder = ReminderConfig(minutesBefore = 10),
+            recurrence = com.minst.chronoflow.domain.model.RecurrenceRule(freq = com.minst.chronoflow.domain.model.Frequency.DAILY, interval = 1, count = 3)
+        )
+
+        val reminders = engine.calculateReminderTimes(event)
+        assertTrue(reminders.isNotEmpty())
+    }
 }
 
 

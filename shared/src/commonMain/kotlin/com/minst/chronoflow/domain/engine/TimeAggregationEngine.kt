@@ -37,6 +37,7 @@ class DefaultTimeAggregationEngine : TimeAggregationEngine {
                     date = date,
                     eventCount = dayEvents.size,
                     totalIntensity = dayEvents.sumOf { it.intensity },
+                    hasRecurring = dayEvents.any { it.recurrence != null },
                 )
             }
     }

@@ -30,7 +30,8 @@ class ReminderReceiver : BroadcastReceiver() {
             if (startTimeStr != null) {
                 try {
                     val startTime = LocalDateTime.parse(startTimeStr)
-                    putExtra("selected_date", startTime.date.toString())
+                    val date = LocalDate(startTime.year, startTime.monthNumber, startTime.dayOfMonth)
+                    putExtra("selected_date", date.toString())
                 } catch (e: Exception) {
                     // 忽略解析错误
                 }

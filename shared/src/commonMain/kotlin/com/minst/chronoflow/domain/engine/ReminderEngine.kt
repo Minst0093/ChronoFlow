@@ -7,6 +7,10 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander
+import kotlinx.datetime.Clock
+import kotlinx.datetime.plus
+import kotlinx.datetime.DatePeriod
 
 interface ReminderEngine {
     fun calculateReminderTimes(event: CalendarEvent): List<LocalDateTime>
@@ -17,17 +21,27 @@ class DefaultReminderEngine : ReminderEngine {
         val config = event.reminder ?: return emptyList()
         if (config.minutesBefore <= 0) return emptyList()
 
-        // 将“本地时间”解释为当前系统时区下的 Instant，在 Instant 上用 TimeBased 单位做减法
         val zone = TimeZone.currentSystemDefault()
+
+        // For recurring events, expand upcoming occurrences and compute reminder times for each occurrence
+        if (event.recurrence != null) {
+            val expander = DefaultRecurrenceExpander()
+            val now = Clock.System.now().toLocalDateTime(zone)
+            val windowStart = now.date
+            val windowEnd = windowStart.plus(DatePeriod(months = 6))
+            val occurrences = expander.expand(event, windowStart, windowEnd, 50)
+            return occurrences.mapNotNull { occ ->
+                val occInstant = occ.startTime.toInstant(zone)
+                val reminderInstant = occInstant.minus(config.minutesBefore.toLong(), DateTimeUnit.MINUTE)
+                val reminderLocal = reminderInstant.toLocalDateTime(zone)
+                if (reminderInstant.toEpochMilliseconds() > Clock.System.now().toEpochMilliseconds()) reminderLocal else null
+            }
+        }
+
+        // Single (non-recurring) event
         val eventStartInstant = event.startTime.toInstant(zone)
-        val reminderInstant =
-            eventStartInstant.minus(config.minutesBefore.toLong(), DateTimeUnit.MINUTE)
-
-        // 再转换回 LocalDateTime，供上层和平台调度使用
-        val reminderLocal = reminderInstant.toLocalDateTime(zone)
-
-        // 最小实现：单一提醒点，后续可扩展为多提醒
-        return listOf(reminderLocal)
+        val reminderInstant = eventStartInstant.minus(config.minutesBefore.toLong(), DateTimeUnit.MINUTE)
+        return listOf(reminderInstant.toLocalDateTime(zone))
     }
 }
 

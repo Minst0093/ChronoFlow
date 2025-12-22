@@ -33,6 +33,8 @@ data class CreateEventInput(
     val type: com.minst.chronoflow.domain.model.EventType,
     val intensity: Int,
     val reminder: com.minst.chronoflow.domain.model.ReminderConfig?,
+    val recurrence: com.minst.chronoflow.domain.model.RecurrenceRule? = null,
+    val allDay: Boolean = false,
 )
 
 class CalendarViewModel(
@@ -40,6 +42,7 @@ class CalendarViewModel(
     private val aggregationEngine: TimeAggregationEngine = DefaultTimeAggregationEngine(),
     private val reminderEngine: ReminderEngine = DefaultReminderEngine(),
     private val notificationScheduler: NotificationScheduler? = null,
+    private val lunarService: com.minst.chronoflow.domain.engine.LunarCalendarService? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
 ) {
 
@@ -80,6 +83,10 @@ class CalendarViewModel(
         refreshForCurrentMonth()
     }
 
+    fun setShowLunar(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(showLunar = enabled)
+    }
+
     fun onNextMonth() {
         val currentState = _uiState.value
         val newMonthStart = currentState.selectedMonthStart.plus(DatePeriod(months = 1))
@@ -99,6 +106,7 @@ class CalendarViewModel(
                     type = input.type,
                     intensity = input.intensity,
                     reminder = input.reminder,
+                    recurrence = input.recurrence,
                 )
                 repository.saveEvent(event)
                 // 调度通知失败不应该影响事件本身的创建和 UI 更新
@@ -159,8 +167,22 @@ class CalendarViewModel(
                 val monthStart = currentState.selectedMonthStart
                 val monthEnd = monthStart.plus(DatePeriod(months = 1)).minusDays(1)
                 val events = repository.getEvents(monthStart, monthEnd)
-                val daySummaries = aggregationEngine.aggregateByDay(events)
-                val weekSummaries = aggregationEngine.aggregateByWeek(events)
+                // expand recurring events within the month window
+                val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
+                val expandedEvents = events.flatMap { ev -> expander.expand(ev, monthStart, monthEnd, 500) }
+                var daySummaries = aggregationEngine.aggregateByDay(expandedEvents)
+                val weekSummaries = aggregationEngine.aggregateByWeek(expandedEvents)
+                // enrich with lunar info (cheap synchronous calls) if service provided
+                if (lunarService != null) {
+                    daySummaries = daySummaries.map { ds ->
+                        try {
+                            val lunar = lunarService.getLunarInfo(ds.date)
+                            ds.copy(hasLunar = true, lunarText = lunar.lunarShort)
+                        } catch (t: Throwable) {
+                            ds
+                        }
+                    }
+                }
                 _uiState.value = _uiState.value.copy(
                     loadStatus = LoadStatus.Success,
                     daySummaries = daySummaries,
@@ -182,7 +204,9 @@ class CalendarViewModel(
             try {
                 val date = currentState.selectedDate
                 val events = repository.getEvents(date, date)
-                _uiState.value = _uiState.value.copy(eventsOfSelectedDate = events)
+                val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
+                val expandedEvents = events.flatMap { ev -> expander.expand(ev, date, date, 200) }
+                _uiState.value = _uiState.value.copy(eventsOfSelectedDate = expandedEvents)
             } catch (t: Throwable) {
                 _uiState.value = _uiState.value.copy(
                     loadStatus = LoadStatus.Error,
@@ -199,7 +223,9 @@ class CalendarViewModel(
                 val weekStart = currentState.selectedWeekStart
                 val weekEnd = weekStart.plus(DatePeriod(days = 6))
                 val events = repository.getEvents(weekStart, weekEnd)
-                _uiState.value = _uiState.value.copy(eventsOfSelectedWeek = events)
+                val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
+                val expandedEvents = events.flatMap { ev -> expander.expand(ev, weekStart, weekEnd, 500) }
+                _uiState.value = _uiState.value.copy(eventsOfSelectedWeek = expandedEvents)
             } catch (t: Throwable) {
                 _uiState.value = _uiState.value.copy(
                     loadStatus = LoadStatus.Error,
@@ -235,6 +261,15 @@ class CalendarViewModel(
         this.minus(DatePeriod(days = days))
 
     private fun generateId(): String = Clock.System.now().toEpochMilliseconds().toString()
+
+    // Expose lunar info lookup to UI (delegates to injected service).
+    fun getLunarInfo(date: LocalDate): com.minst.chronoflow.domain.engine.LunarInfo? {
+        return try {
+            lunarService?.getLunarInfo(date)
+        } catch (t: Throwable) {
+            null
+        }
+    }
 }
 
 

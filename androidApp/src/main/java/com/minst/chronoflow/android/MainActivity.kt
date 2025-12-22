@@ -30,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.minst.chronoflow.platform.NotificationScheduler
 import com.minst.chronoflow.presentation.CalendarViewModel
+import com.minst.chronoflow.android.createPlatformLunarService
+import com.minst.chronoflow.domain.engine.DefaultLunarCalendarService
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 
@@ -47,6 +49,7 @@ class MainActivity : ComponentActivity() {
         CalendarViewModel(
             repository = repository,
             notificationScheduler = scheduler,
+            lunarService = createPlatformLunarService(),
         )
     }
 

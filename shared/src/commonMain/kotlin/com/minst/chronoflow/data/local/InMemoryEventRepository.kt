@@ -17,8 +17,13 @@ class InMemoryEventRepository : EventRepository {
             events.filter { event ->
                 val eventStartDate = event.startTime.date
                 val eventEndDate = event.endTime.date
-                // 与 [start, end] 区间有交集的事件
-                !(eventEndDate < start || eventStartDate > end)
+                // If event is recurring, include it if it starts on or before the window end
+                if (event.recurrence != null) {
+                    eventStartDate <= end
+                } else {
+                    // 与 [start, end] 区间有交集的事件
+                    !(eventEndDate < start || eventStartDate > end)
+                }
             }
         }
 
