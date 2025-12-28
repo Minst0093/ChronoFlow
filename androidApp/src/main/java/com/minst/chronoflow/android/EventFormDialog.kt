@@ -1,6 +1,8 @@
 package com.minst.chronoflow.android
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +30,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -141,14 +145,24 @@ fun EventFormDialog(
     }
 
     // Preview helper (available to both dialog body and confirm button)
-    val nextPreview = remember(computedRecurrenceRule, startTime, endTime) {
-        if (computedRecurrenceRule == null) null else {
-            val expander = DefaultRecurrenceExpander()
-            val tempEvent = CalendarEvent(id = "preview", title = title.ifBlank { "预览事件" }, description = null, startTime = startTime, endTime = endTime, type = selectedType, intensity = intensity, reminder = null, recurrence = computedRecurrenceRule)
-            val zone = TimeZone.currentSystemDefault()
-            val nowDate = Clock.System.now().toLocalDateTime(zone).date
-            val list = expander.expand(tempEvent, nowDate, nowDate.plus(kotlinx.datetime.DatePeriod(months = 6)), 1)
-            list.firstOrNull()
+    // Compute recurrence expansion off the UI thread to avoid blocking composition
+    val nextPreviewState = remember { mutableStateOf<CalendarEvent?>(null) }
+    androidx.compose.runtime.LaunchedEffect(computedRecurrenceRule, startTime, endTime, title, selectedType, intensity) {
+        nextPreviewState.value = null
+        if (computedRecurrenceRule != null) {
+            val preview = withContext(Dispatchers.Default) {
+                try {
+                    val expander = DefaultRecurrenceExpander()
+                    val tempEvent = CalendarEvent(id = "preview", title = title.ifBlank { "预览事件" }, description = null, startTime = startTime, endTime = endTime, type = selectedType, intensity = intensity, reminder = null, recurrence = computedRecurrenceRule)
+                    val zone = TimeZone.currentSystemDefault()
+                    val nowDate = Clock.System.now().toLocalDateTime(zone).date
+                    val list = expander.expand(tempEvent, nowDate, nowDate.plus(kotlinx.datetime.DatePeriod(months = 6)), 1)
+                    list.firstOrNull()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            nextPreviewState.value = preview
         }
     }
 
@@ -207,7 +221,10 @@ fun EventFormDialog(
                                     Box(modifier = Modifier
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(Color(0xFFF1F5F9))
-                                        .clickable { showStartDatePicker = true }
+                                        .clickable(
+                                            indication = LocalIndication.current,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) { showStartDatePicker = true }
                                         .padding(horizontal = 16.dp, vertical = 10.dp)
                                     ) {
                                         Text("${startTime.year}-${startTime.monthNumber.toString().padStart(2,'0')}-${startTime.dayOfMonth.toString().padStart(2,'0')}", color = Color.Black)
@@ -216,7 +233,10 @@ fun EventFormDialog(
                                     Box(modifier = Modifier
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(Color(0xFFF1F5F9))
-                                        .clickable { showStartTimePicker = true }
+                                        .clickable(
+                                            indication = LocalIndication.current,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) { showStartTimePicker = true }
                                         .padding(horizontal = 16.dp, vertical = 10.dp)
                                     ) {
                                         Text(String.format("%02d:%02d", startTime.hour, startTime.minute), color = Color.Black)
@@ -230,7 +250,10 @@ fun EventFormDialog(
                                     Box(modifier = Modifier
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(Color(0xFFF1F5F9))
-                                        .clickable { showEndDatePicker = true }
+                                        .clickable(
+                                            indication = LocalIndication.current,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) { showEndDatePicker = true }
                                         .padding(horizontal = 16.dp, vertical = 10.dp)
                                     ) {
                                         Text("${endTime.year}-${endTime.monthNumber.toString().padStart(2,'0')}-${endTime.dayOfMonth.toString().padStart(2,'0')}", color = Color.Black)
@@ -239,7 +262,10 @@ fun EventFormDialog(
                                     Box(modifier = Modifier
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(Color(0xFFF1F5F9))
-                                        .clickable { showEndTimePicker = true }
+                                        .clickable(
+                                            indication = LocalIndication.current,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) { showEndTimePicker = true }
                                         .padding(horizontal = 16.dp, vertical = 10.dp)
                                     ) {
                                         Text(String.format("%02d:%02d", endTime.hour, endTime.minute), color = Color.Black)
@@ -255,7 +281,10 @@ fun EventFormDialog(
                                         .clip(RoundedCornerShape(24.dp))
                                         .background(Color(0xFFF1F5F9))
                                         .padding(horizontal = 12.dp, vertical = 8.dp)
-                                        .clickable { showStartDatePicker = true }) {
+                                        .clickable(
+                                            indication = LocalIndication.current,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) { showStartDatePicker = true }) {
                                         Text("${startTime.year}-${startTime.monthNumber.toString().padStart(2,'0')}-${startTime.dayOfMonth.toString().padStart(2,'0')}", color = Color.Black)
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -282,7 +311,10 @@ fun EventFormDialog(
             Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     var recurrenceExpanded by remember { mutableStateOf(false) }
-                    Row(modifier = Modifier.fillMaxWidth().clickable { recurrenceExpanded = !recurrenceExpanded }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Row(modifier = Modifier.fillMaxWidth().clickable(
+                        indication = LocalIndication.current,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { recurrenceExpanded = !recurrenceExpanded }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("重复", style = MaterialTheme.typography.labelMedium)
                         Box(modifier = Modifier
                             .clip(RoundedCornerShape(24.dp))
@@ -302,7 +334,12 @@ fun EventFormDialog(
                                         Row(
                                             modifier = Modifier
                                                 .weight(1f)
-                                                .selectable(selected = recurrenceOption == opt, onClick = { recurrenceOption = opt })
+                                                .selectable(
+                                                    selected = recurrenceOption == opt,
+                                                    onClick = { recurrenceOption = opt },
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                    indication = LocalIndication.current
+                                                )
                                                 .padding(vertical = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -322,7 +359,10 @@ fun EventFormDialog(
                     if (recurrenceOption != "无") {
                         Spacer(modifier = Modifier.height(8.dp))
                         var endExpanded by remember { mutableStateOf(false) }
-                        Row(modifier = Modifier.fillMaxWidth().clickable { endExpanded = !endExpanded }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(modifier = Modifier.fillMaxWidth().clickable(
+                            indication = LocalIndication.current,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { endExpanded = !endExpanded }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("结束条件", style = MaterialTheme.typography.labelMedium)
                             Box(modifier = Modifier
                                 .clip(RoundedCornerShape(24.dp))
@@ -347,7 +387,12 @@ fun EventFormDialog(
                                     rowOpts.forEach { eo ->
                                         Row(modifier = Modifier
                                             .weight(1f)
-                                            .selectable(selected = recurrenceEndType == eo, onClick = { recurrenceEndType = eo })
+                                            .selectable(
+                                                selected = recurrenceEndType == eo,
+                                                onClick = { recurrenceEndType = eo },
+                                            interactionSource = remember { MutableInteractionSource() },
+                                                indication = LocalIndication.current
+                                            )
                                             .padding(vertical = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically) {
                                             RadioButton(selected = recurrenceEndType == eo, onClick = { recurrenceEndType = eo })
@@ -367,7 +412,10 @@ fun EventFormDialog(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { showUntilDatePicker = true }
+                                        .clickable(
+                                            indication = LocalIndication.current,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) { showUntilDatePicker = true }
                                         .padding(12.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
@@ -438,7 +486,10 @@ fun EventFormDialog(
                                         .weight(1f)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(if (isSelected) getEventTypeColor(type).copy(alpha = 0.12f) else Color.Transparent)
-                                        .clickable { selectedType = type }
+                                        .clickable(
+                                            indication = LocalIndication.current,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) { selectedType = type }
                                         .padding(vertical = 8.dp, horizontal = 8.dp),
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {

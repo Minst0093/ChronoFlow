@@ -15,6 +15,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != AndroidNotificationScheduler.ACTION_SHOW_REMINDER) return
+        android.util.Log.d("ReminderReceiver", "onReceive intent=${intent.action}")
 
         val eventId = intent.getStringExtra(AndroidNotificationScheduler.EXTRA_EVENT_ID) ?: return
         val title = intent.getStringExtra(AndroidNotificationScheduler.EXTRA_EVENT_TITLE) ?: "事件提醒"

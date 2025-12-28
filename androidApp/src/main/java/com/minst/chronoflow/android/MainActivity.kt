@@ -11,20 +11,13 @@ import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -34,6 +27,7 @@ import com.minst.chronoflow.android.createPlatformLunarService
 import com.minst.chronoflow.domain.engine.DefaultLunarCalendarService
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
+import com.minst.chronoflow.android.ViewMode
 
 class MainActivity : ComponentActivity() {
 
@@ -70,12 +64,18 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // 隐藏原生 Activity 的 ActionBar / 标题，避免出现全局黑色条重复显示应用名
+        // ComponentActivity 上可以使用 actionBar 来隐藏系统 ActionBar（如果存在）
+        actionBar?.hide()
+        // 清空 Activity 标题以防某些系统主题仍在显示标题文本
+        title = ""
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MainScreen(
                         viewModel = sharedViewModel,
-                        initialTab = if (shouldShowDayView) 2 else 0, // 2 = 日视图
+                        initialViewMode = if (shouldShowDayView) ViewMode.DAY else ViewMode.MONTH,
                     )
                 }
             }
@@ -102,55 +102,57 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainScreen(
     viewModel: CalendarViewModel,
-    initialTab: Int = 0,
+    initialViewMode: ViewMode = ViewMode.MONTH,
 ) {
-    var selectedTab by remember { mutableIntStateOf(initialTab) }
+    var selectedViewMode by remember { mutableStateOf(initialViewMode) }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.CalendarMonth, contentDescription = null) },
-                    label = { Text("月视图") },
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                    label = { Text("周视图") },
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
-                    label = { Text("日视图") },
-                )
-            }
-        },
-    ) { padding ->
+    val onViewModeChange: (ViewMode) -> Unit = { newMode ->
+        selectedViewMode = when (newMode) {
+            ViewMode.YEAR -> ViewMode.MONTH // 年视图暂且显示月视图
+            ViewMode.MONTH -> ViewMode.MONTH
+            ViewMode.WEEK -> ViewMode.WEEK
+            ViewMode.DAY -> ViewMode.DAY
+        }
+    }
+
+    Scaffold { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            when (selectedTab) {
-                0 -> MonthViewScreen(
+            when (selectedViewMode) {
+                ViewMode.MONTH -> MonthViewScreen(
                     viewModel = viewModel,
+                    onViewModeChange = onViewModeChange,
                     onDayClick = { date: LocalDate ->
                         viewModel.onDaySelected(date)
-                        selectedTab = 2 // 切换到日视图
+                        selectedViewMode = ViewMode.DAY // 切换到日视图
                     },
                 )
-                1 -> WeekViewScreen(
+                ViewMode.WEEK -> WeekViewScreen(
                     viewModel = viewModel,
+                    onViewModeChange = onViewModeChange,
                     onDayClick = { date: LocalDate ->
                         viewModel.onDaySelected(date)
-                        selectedTab = 2 // 切换到日视图
+                        selectedViewMode = ViewMode.DAY // 切换到日视图
                     },
                 )
-                2 -> DayViewScreen(viewModel = viewModel)
+                ViewMode.DAY -> DayViewScreen(
+                    viewModel = viewModel,
+                    onViewModeChange = onViewModeChange
+                )
+                ViewMode.YEAR -> {
+                    // TODO: 年视图暂且留置，显示月视图
+                    MonthViewScreen(
+                        viewModel = viewModel,
+                        onViewModeChange = onViewModeChange,
+                        onDayClick = { date: LocalDate ->
+                            viewModel.onDaySelected(date)
+                            selectedViewMode = ViewMode.DAY
+                        },
+                    )
+                }
             }
         }
     }

@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.minst.chronoflow.android"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.minst.chronoflow.android"
@@ -38,9 +38,11 @@ android {
 
 dependencies {
     implementation(project(":shared"))
+    implementation("androidx.compose.foundation:foundation:1.10.0")
 
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
     implementation(composeBom)
+    androidTestImplementation(composeBom)
 
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")

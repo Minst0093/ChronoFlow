@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.DayOfWeek
@@ -58,40 +59,65 @@ class CalendarViewModel(
     }
 
     fun onDaySelected(date: LocalDate) {
-        _uiState.value = _uiState.value.copy(selectedDate = date)
+        val currentState = _uiState.value
+        val newWeekStart = date.startOfWeek()
+        _uiState.value = currentState.copy(selectedDate = date, selectedWeekStart = newWeekStart)
+        // refresh both day and week views so collapsed week reflects the newly selected date's week
         refreshEventsForSelectedDate()
+        refreshEventsForSelectedWeek()
     }
 
     fun onPreviousWeek() {
         val currentState = _uiState.value
         val newWeekStart = currentState.selectedWeekStart.minus(DatePeriod(days = 7))
-        _uiState.value = currentState.copy(selectedWeekStart = newWeekStart)
+        // 将selectedDate设置为新周的中间日期（周三），以便CalendarHeader正确显示年月周信息
+        val newSelectedDate = newWeekStart.plus(DatePeriod(days = 2))
+        _uiState.value = currentState.copy(selectedWeekStart = newWeekStart, selectedDate = newSelectedDate)
         refreshEventsForSelectedWeek()
     }
 
     fun onNextWeek() {
         val currentState = _uiState.value
         val newWeekStart = currentState.selectedWeekStart.plus(DatePeriod(days = 7))
-        _uiState.value = currentState.copy(selectedWeekStart = newWeekStart)
+        // 将selectedDate设置为新周的中间日期（周三），以便CalendarHeader正确显示年月周信息
+        val newSelectedDate = newWeekStart.plus(DatePeriod(days = 2))
+        _uiState.value = currentState.copy(selectedWeekStart = newWeekStart, selectedDate = newSelectedDate)
         refreshEventsForSelectedWeek()
     }
 
     fun onPreviousMonth() {
         val currentState = _uiState.value
         val newMonthStart = currentState.selectedMonthStart.minus(DatePeriod(months = 1))
-        _uiState.value = currentState.copy(selectedMonthStart = newMonthStart)
+        // preserve day-of-month if possible (e.g., 31 -> next month may have fewer days)
+        val oldDay = currentState.selectedDate.dayOfMonth
+        val nextMonthStart = newMonthStart.plus(DatePeriod(months = 1))
+        val lastDayOfNewMonth = nextMonthStart.minus(DatePeriod(days = 1)).dayOfMonth
+        val newDay = kotlin.math.min(oldDay, lastDayOfNewMonth)
+        val newSelectedDate = newMonthStart.withDayOfMonth(newDay)
+        _uiState.value = currentState.copy(selectedMonthStart = newMonthStart, selectedDate = newSelectedDate)
         refreshForCurrentMonth()
+        refreshEventsForSelectedDate()
     }
 
     fun setShowLunar(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(showLunar = enabled)
     }
 
+    fun setDateSelectorExpanded(expanded: Boolean) {
+        _uiState.value = _uiState.value.copy(dateSelectorExpanded = expanded)
+    }
+
     fun onNextMonth() {
         val currentState = _uiState.value
         val newMonthStart = currentState.selectedMonthStart.plus(DatePeriod(months = 1))
-        _uiState.value = currentState.copy(selectedMonthStart = newMonthStart)
+        val oldDay = currentState.selectedDate.dayOfMonth
+        val nextMonthStart = newMonthStart.plus(DatePeriod(months = 1))
+        val lastDayOfNewMonth = nextMonthStart.minus(DatePeriod(days = 1)).dayOfMonth
+        val newDay = kotlin.math.min(oldDay, lastDayOfNewMonth)
+        val newSelectedDate = newMonthStart.withDayOfMonth(newDay)
+        _uiState.value = currentState.copy(selectedMonthStart = newMonthStart, selectedDate = newSelectedDate)
         refreshForCurrentMonth()
+        refreshEventsForSelectedDate()
     }
 
     fun onCreateEvent(input: CreateEventInput) {
@@ -167,14 +193,20 @@ class CalendarViewModel(
                 val monthStart = currentState.selectedMonthStart
                 val monthEnd = monthStart.plus(DatePeriod(months = 1)).minusDays(1)
                 val events = repository.getEvents(monthStart, monthEnd)
-                // expand recurring events within the month window
-                val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
-                val expandedEvents = events.flatMap { ev -> expander.expand(ev, monthStart, monthEnd, 500) }
-                var daySummaries = aggregationEngine.aggregateByDay(expandedEvents)
-                val weekSummaries = aggregationEngine.aggregateByWeek(expandedEvents)
+
+                // perform CPU-heavy expansion and aggregation off the main thread
+                val (expandedEvents, daySummaries, weekSummaries) = withContext(Dispatchers.Default) {
+                    val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
+                    val expanded = events.flatMap { ev -> expander.expand(ev, monthStart, monthEnd, 500) }
+                    val ds = aggregationEngine.aggregateByDay(expanded)
+                    val ws = aggregationEngine.aggregateByWeek(expanded)
+                    Triple(expanded, ds, ws)
+                }
+
                 // enrich with lunar info (cheap synchronous calls) if service provided
+                var enrichedDaySummaries = daySummaries
                 if (lunarService != null) {
-                    daySummaries = daySummaries.map { ds ->
+                    enrichedDaySummaries = enrichedDaySummaries.map { ds ->
                         try {
                             val lunar = lunarService.getLunarInfo(ds.date)
                             ds.copy(hasLunar = true, lunarText = lunar.lunarShort)
@@ -183,9 +215,10 @@ class CalendarViewModel(
                         }
                     }
                 }
+
                 _uiState.value = _uiState.value.copy(
                     loadStatus = LoadStatus.Success,
-                    daySummaries = daySummaries,
+                    daySummaries = enrichedDaySummaries,
                     weekSummaries = weekSummaries,
                     errorMessage = null,
                 )
@@ -204,8 +237,13 @@ class CalendarViewModel(
             try {
                 val date = currentState.selectedDate
                 val events = repository.getEvents(date, date)
-                val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
-                val expandedEvents = events.flatMap { ev -> expander.expand(ev, date, date, 200) }
+
+                // expand recurrences off main thread
+                val expandedEvents = withContext(Dispatchers.Default) {
+                    val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
+                    events.flatMap { ev -> expander.expand(ev, date, date, 200) }
+                }
+
                 _uiState.value = _uiState.value.copy(eventsOfSelectedDate = expandedEvents)
             } catch (t: Throwable) {
                 _uiState.value = _uiState.value.copy(
@@ -223,8 +261,12 @@ class CalendarViewModel(
                 val weekStart = currentState.selectedWeekStart
                 val weekEnd = weekStart.plus(DatePeriod(days = 6))
                 val events = repository.getEvents(weekStart, weekEnd)
-                val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
-                val expandedEvents = events.flatMap { ev -> expander.expand(ev, weekStart, weekEnd, 500) }
+
+                val expandedEvents = withContext(Dispatchers.Default) {
+                    val expander = com.minst.chronoflow.domain.engine.DefaultRecurrenceExpander()
+                    events.flatMap { ev -> expander.expand(ev, weekStart, weekEnd, 500) }
+                }
+
                 _uiState.value = _uiState.value.copy(eventsOfSelectedWeek = expandedEvents)
             } catch (t: Throwable) {
                 _uiState.value = _uiState.value.copy(

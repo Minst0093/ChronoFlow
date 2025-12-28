@@ -43,7 +43,8 @@ class AndroidNotificationScheduler(
                 }
 
                 // 使用 event.id.hashCode() + index 作为 requestCode，确保每个提醒点都有唯一的PendingIntent
-                val requestCode = event.id.hashCode() + index
+                val requestCode = event.id.hashCode() * 31 + index
+                android.util.Log.d("AndroidNotificationScheduler", "Scheduling reminder for event=${event.id} at ${triggerAtMillis} (requestCode=$requestCode)")
                 val pendingIntent = PendingIntent.getBroadcast(
                     context,
                     requestCode,
