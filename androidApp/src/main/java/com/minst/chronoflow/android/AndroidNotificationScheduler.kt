@@ -20,11 +20,17 @@ class AndroidNotificationScheduler(
         context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
 
     override fun schedule(event: CalendarEvent) {
+        android.util.Log.d("AndroidNotificationScheduler", "schedule() called for event: ${event.id}, title: ${event.title}, reminder: ${event.reminder}")
+
         // 先取消旧的提醒（如果存在）
         cancel(event.id)
 
         val reminders = reminderEngine.calculateReminderTimes(event)
-        if (reminders.isEmpty()) return
+        android.util.Log.d("AndroidNotificationScheduler", "Calculated ${reminders.size} reminder times for event ${event.id}")
+        if (reminders.isEmpty()) {
+            android.util.Log.d("AndroidNotificationScheduler", "No reminders to schedule for event ${event.id}")
+            return
+        }
 
         val zone = TimeZone.currentSystemDefault()
         val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
@@ -32,7 +38,9 @@ class AndroidNotificationScheduler(
         // 为每个提醒时间创建Alarm
         reminders.forEachIndexed { index, reminderTime ->
             val triggerAtMillis = reminderTime.toInstant(zone).toEpochMilliseconds()
-            
+
+            android.util.Log.d("AndroidNotificationScheduler", "Reminder $index: time=$reminderTime, millis=$triggerAtMillis, now=$now")
+
             // 只调度未来的提醒
             if (triggerAtMillis > now) {
                 val intent = Intent(context, ReminderReceiver::class.java).apply {
@@ -52,11 +60,24 @@ class AndroidNotificationScheduler(
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
 
-                alarmManager?.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent,
-                )
+                val alarmManager = alarmManager
+                if (alarmManager == null) {
+                    android.util.Log.e("AndroidNotificationScheduler", "AlarmManager is null!")
+                    return@forEachIndexed
+                }
+
+                try {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent,
+                    )
+                    android.util.Log.d("AndroidNotificationScheduler", "Successfully scheduled alarm for event ${event.id} at $triggerAtMillis")
+                } catch (e: Exception) {
+                    android.util.Log.e("AndroidNotificationScheduler", "Failed to schedule alarm for event ${event.id}", e)
+                }
+            } else {
+                android.util.Log.d("AndroidNotificationScheduler", "Skipping past reminder for event ${event.id}: $triggerAtMillis <= $now")
             }
         }
     }

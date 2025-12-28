@@ -714,8 +714,19 @@ private fun CollapsedWeekView(
 
         // 一周日期选择器（带拖拽切换和点击展开功能）
         val weekStart = state.selectedWeekStart
-        // UI labels start on Sunday; internal weekStart is Monday-based, so display starting Sunday
-        val displayWeekStart = remember(weekStart) { weekStart.minus(DatePeriod(days = 1)) }
+        val selectedDateForDisplay = state.selectedDate
+        // UI labels start on Sunday; internal weekStart is Monday-based, so compute a Sunday-first display start
+        // Ensure the displayed Sunday-first week contains the selectedDate (handles case when selectedDate is Sunday)
+        val displayWeekStart = remember(weekStart, selectedDateForDisplay) {
+            val candidate = weekStart.minus(DatePeriod(days = 1)) // default Sunday before Monday-based weekStart
+            val sundayOfWeek = weekStart.plus(DatePeriod(days = 6))
+            if (selectedDateForDisplay == sundayOfWeek) {
+                // selected date is the Sunday at end of the Monday-based week -> show that Sunday as the first column
+                selectedDateForDisplay
+            } else {
+                candidate
+            }
+        }
 
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val maxWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }

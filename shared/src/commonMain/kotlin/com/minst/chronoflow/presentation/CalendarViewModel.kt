@@ -136,7 +136,12 @@ class CalendarViewModel(
                 )
                 repository.saveEvent(event)
                 // 调度通知失败不应该影响事件本身的创建和 UI 更新
-                runCatching { notificationScheduler?.schedule(event) }
+                runCatching {
+                    println("CalendarViewModel: Scheduling notification for new event ${event.id}")
+                    notificationScheduler?.schedule(event)
+                }.onFailure { e ->
+                    println("CalendarViewModel: Failed to schedule notification for event ${event.id}: ${e.message}")
+                }
                 refreshAll()
             } catch (t: Throwable) {
                 _uiState.value = _uiState.value.copy(
@@ -152,7 +157,12 @@ class CalendarViewModel(
             try {
                 repository.saveEvent(event)
                 // 更新通知失败同样不影响事件本身的更新
-                runCatching { notificationScheduler?.schedule(event) }
+                runCatching {
+                    println("CalendarViewModel: Scheduling notification for updated event ${event.id}")
+                    notificationScheduler?.schedule(event)
+                }.onFailure { e ->
+                    println("CalendarViewModel: Failed to schedule notification for updated event ${event.id}: ${e.message}")
+                }
                 refreshAll()
             } catch (t: Throwable) {
                 _uiState.value = _uiState.value.copy(

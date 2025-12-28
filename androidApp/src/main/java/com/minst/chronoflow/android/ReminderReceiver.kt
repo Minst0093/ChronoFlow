@@ -14,12 +14,23 @@ import kotlinx.datetime.LocalDateTime
 class ReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != AndroidNotificationScheduler.ACTION_SHOW_REMINDER) return
-        android.util.Log.d("ReminderReceiver", "onReceive intent=${intent.action}")
+        android.util.Log.d("ReminderReceiver", "onReceive called with action=${intent.action}")
 
-        val eventId = intent.getStringExtra(AndroidNotificationScheduler.EXTRA_EVENT_ID) ?: return
+        if (intent.action != AndroidNotificationScheduler.ACTION_SHOW_REMINDER) {
+            android.util.Log.d("ReminderReceiver", "Ignoring intent with action: ${intent.action}")
+            return
+        }
+
+        val eventId = intent.getStringExtra(AndroidNotificationScheduler.EXTRA_EVENT_ID)
         val title = intent.getStringExtra(AndroidNotificationScheduler.EXTRA_EVENT_TITLE) ?: "事件提醒"
         val startTimeStr = intent.getStringExtra(AndroidNotificationScheduler.EXTRA_EVENT_START_TIME)
+
+        android.util.Log.d("ReminderReceiver", "Processing reminder - eventId: $eventId, title: $title, startTime: $startTimeStr")
+
+        if (eventId == null) {
+            android.util.Log.e("ReminderReceiver", "Missing event ID in intent")
+            return
+        }
 
         val channelId = "chrono_flow_reminder"
         createChannelIfNeeded(context, channelId)
@@ -55,8 +66,14 @@ class ReminderReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
-        NotificationManagerCompat.from(context)
-            .notify(eventId.hashCode(), notification)
+        try {
+            NotificationManagerCompat.from(context).notify(eventId.hashCode(), notification)
+            android.util.Log.d("ReminderReceiver", "Notification displayed successfully for event $eventId")
+        } catch (e: SecurityException) {
+            android.util.Log.e("ReminderReceiver", "Failed to show notification - permission denied", e)
+        } catch (e: Exception) {
+            android.util.Log.e("ReminderReceiver", "Failed to show notification", e)
+        }
     }
 
     private fun createChannelIfNeeded(context: Context, channelId: String) {
