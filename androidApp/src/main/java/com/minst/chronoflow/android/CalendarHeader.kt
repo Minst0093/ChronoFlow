@@ -87,7 +87,6 @@ import kotlinx.datetime.todayIn
  * 视图模式枚举
  */
 enum class ViewMode(val displayName: String) {
-    YEAR("年"),
     MONTH("月"),
     WEEK("周"),
     DAY("日")

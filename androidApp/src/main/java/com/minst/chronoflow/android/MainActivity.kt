@@ -108,7 +108,6 @@ private fun MainScreen(
 
     val onViewModeChange: (ViewMode) -> Unit = { newMode ->
         selectedViewMode = when (newMode) {
-            ViewMode.YEAR -> ViewMode.MONTH // 年视图暂且显示月视图
             ViewMode.MONTH -> ViewMode.MONTH
             ViewMode.WEEK -> ViewMode.WEEK
             ViewMode.DAY -> ViewMode.DAY
@@ -142,17 +141,6 @@ private fun MainScreen(
                     viewModel = viewModel,
                     onViewModeChange = onViewModeChange
                 )
-                ViewMode.YEAR -> {
-                    // TODO: 年视图暂且留置，显示月视图
-                    MonthViewScreen(
-                        viewModel = viewModel,
-                        onViewModeChange = onViewModeChange,
-                        onDayClick = { date: LocalDate ->
-                            viewModel.onDaySelected(date)
-                            selectedViewMode = ViewMode.DAY
-                        },
-                    )
-                }
             }
         }
     }
